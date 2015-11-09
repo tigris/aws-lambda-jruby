@@ -1,5 +1,5 @@
-#--
-# $originalId: parser.rb,v 1.8 2006/07/06 11:42:07 aamine Exp $
+#
+# $Id: f015c335c3b92ed58b32b8fb00163be48783f689 $
 #
 # Copyright (c) 1999-2006 Minero Aoki
 #
@@ -9,7 +9,13 @@
 # As a special exception, when this code is copied by Racc
 # into a Racc output file, you may use that output file
 # without restriction.
-#++
+#
+
+require 'racc/info'
+
+unless defined?(NotImplementedError)
+  NotImplementedError = NotImplementError # :nodoc:
+end
 
 module Racc
   class ParseError < StandardError; end
@@ -37,7 +43,7 @@ end
 #          [--version] [--copyright] [--help] <var>grammarfile</var>
 #
 # [+filename+]
-#   Racc grammar file. Any extension is permitted.
+#   Racc grammar file. Any extention is permitted.
 # [-o+outfile+, --output-file=+outfile+]
 #   A filename for output. default is <+filename+>.tab.rb
 # [-O+filename+, --log-file=+filename+]
@@ -48,12 +54,12 @@ end
 # [-v, --verbose]
 #   verbose mode. create +filename+.output file, like yacc's y.output file.
 # [-g, --debug]
-#   add debug code to parser class. To display debugging information,
+#   add debug code to parser class. To display debuggin information,
 #   use this '-g' option and set @yydebug true in parser class.
 # [-E, --embedded]
 #   Output parser which doesn't need runtime files (racc/parser.rb).
 # [-C, --check-only]
-#   Check syntax of racc grammar file and quit.
+#   Check syntax of racc grammer file and quit.
 # [-S, --output-status]
 #   Print messages time to time while compiling.
 # [-l, --no-line-convert]
@@ -174,25 +180,30 @@ end
 # Your own parser is completely yours.
 module Racc
 
-  unless defined?(Racc_No_Extensions)
-    Racc_No_Extensions = false # :nodoc:
+  unless defined?(Racc_No_Extentions)
+    Racc_No_Extentions = false # :nodoc:
   end
 
   class Parser
 
-    Racc_Runtime_Version = '1.4.6'
-    Racc_Runtime_Revision = %w$originalRevision: 1.8 $[1]
+    Racc_Runtime_Version = ::Racc::VERSION
+    Racc_Runtime_Revision = '$Id: f015c335c3b92ed58b32b8fb00163be48783f689 $'
 
-    Racc_Runtime_Core_Version_R = '1.4.6'
-    Racc_Runtime_Core_Revision_R = %w$originalRevision: 1.8 $[1]
+    Racc_Runtime_Core_Version_R = ::Racc::VERSION
+    Racc_Runtime_Core_Revision_R = '$Id: f015c335c3b92ed58b32b8fb00163be48783f689 $'.split[1]
     begin
-      require 'racc/cparse'
-    # Racc_Runtime_Core_Version_C  = (defined in extension)
+      if Object.const_defined?(:RUBY_ENGINE) and RUBY_ENGINE == 'jruby'
+        require 'racc/cparse-jruby.jar'
+        com.headius.racc.Cparse.new.load(JRuby.runtime, false)
+      else
+        require 'racc/cparse'
+      end
+    # Racc_Runtime_Core_Version_C  = (defined in extention)
       Racc_Runtime_Core_Revision_C = Racc_Runtime_Core_Id_C.split[2]
       unless new.respond_to?(:_racc_do_parse_c, true)
         raise LoadError, 'old cparse.so'
       end
-      if Racc_No_Extensions
+      if Racc_No_Extentions
         raise LoadError, 'selecting ruby version of racc runtime core'
       end
 
@@ -202,6 +213,8 @@ module Racc
       Racc_Runtime_Core_Revision   = Racc_Runtime_Core_Revision_C # :nodoc:
       Racc_Runtime_Type            = 'c' # :nodoc:
     rescue LoadError
+puts $!
+puts $!.backtrace
       Racc_Main_Parsing_Routine    = :_racc_do_parse_rb
       Racc_YY_Parse_Method         = :_racc_yyparse_rb
       Racc_Runtime_Core_Version    = Racc_Runtime_Core_Version_R
@@ -273,8 +286,7 @@ module Racc
     def _racc_do_parse_rb(arg, in_debug)
       action_table, action_check, action_default, action_pointer,
       _,            _,            _,              _,
-      _,            _,            token_table,    _,
-      _,            _,            * = arg
+      _,            _,            token_table,    * = arg
 
       _racc_init_sysvars
       tok = act = i = nil
@@ -316,18 +328,15 @@ module Racc
     # RECEIVER#METHOD_ID is a method to get next token.
     # It must 'yield' the token, which format is [TOKEN-SYMBOL, VALUE].
     def yyparse(recv, mid)
-      __send__(Racc_YY_Parse_Method, recv, mid, _racc_setup(), true)
+      __send__(Racc_YY_Parse_Method, recv, mid, _racc_setup(), false)
     end
 
     def _racc_yyparse_rb(recv, mid, arg, c_debug)
       action_table, action_check, action_default, action_pointer,
-      _,             _,            _,              _,
-      _,            _,            token_table,    _,
-      _,            _,            * = arg
+      _,            _,            _,              _,
+      _,            _,            token_table,    * = arg
 
       _racc_init_sysvars
-      act = nil
-      i = nil
 
       catch(:racc_end_parse) {
         until i = action_pointer[@racc_state[-1]]
@@ -354,9 +363,9 @@ module Racc
             ;
           end
 
-          while not(i = action_pointer[@racc_state[-1]]) or
-                not @racc_read_next or
-                @racc_t == 0   # $
+          while !(i = action_pointer[@racc_state[-1]]) ||
+                ! @racc_read_next ||
+                @racc_t == 0  # $
             unless i and i += @racc_t and
                    i >= 0 and
                    act = action_table[i] and
@@ -377,9 +386,10 @@ module Racc
 
     def _racc_evalact(act, arg)
       action_table, action_check, _, action_pointer,
-      _,   _, _, _,
-      _,   _, _, shift_n,  reduce_n,
-      _,   _, * = arg
+      _,            _,            _, _,
+      _,            _,            _, shift_n,
+      reduce_n,     * = arg
+      nerr = 0   # tmp
 
       if act > 0 and act < shift_n
         #
@@ -430,6 +440,7 @@ module Racc
         case @racc_error_status
         when 0
           unless arg[21]    # user_yyerror
+            nerr += 1
             on_error @racc_t, @racc_val, @racc_vstack
           end
         when 3
@@ -469,10 +480,11 @@ module Racc
     end
 
     def _racc_do_reduce(arg, act)
-      _, _, _, _,
-      goto_table,   goto_check,   goto_default,   goto_pointer,
-      nt_base,      reduce_table, _,    _,
-      _,     use_result,   * = arg
+      _,          _,            _,            _,
+      goto_table, goto_check,   goto_default, goto_pointer,
+      nt_base,    reduce_table, _,            _,
+      _,          use_result,   * = arg
+
       state = @racc_state
       vstack = @racc_vstack
       tstack = @racc_tstack
@@ -568,7 +580,6 @@ module Racc
         toks.each {|t| out.print ' ', racc_token2str(t) }
       end
       out.puts " --> #{racc_token2str(sim)}"
-
       racc_print_stacks tstack, vstack
       @racc_debug_out.puts
     end
